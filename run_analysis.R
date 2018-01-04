@@ -172,4 +172,11 @@ select_uci_har <- function(
     }
 
 
+# TODO:
+rename_activities_uci_har <- function(
+        uci_har_data
+    ){
+    # TODO
+    }
+
 ###############################################################################
