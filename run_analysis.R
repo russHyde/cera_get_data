@@ -3,8 +3,8 @@
 # This script should do the following:
 # Read in the UCI/HAR dataset
 # Merge the training and test data into a single dataset
-# Subset the columns of the dataset - keeping the mean and sd for each
-# measurement
+# Subset the columns of the dataset - keeping those columns containing a mean
+#   or sd value for a measurement
 # Rename the activities in the dataset
 # Rename the columns of the dataset
 # Create a second tidy dataset based on the subset/renamed dataset
@@ -34,7 +34,9 @@
 #' 
 #' The returned values have no parentheses, no dashes, no commas
 #'
-parse_features_file <- function(filename){
+parse_features_file <- function(
+        filename
+    ){
     require(magrittr)
     require(stringr)
     stopifnot(file.exists(filename))
@@ -49,12 +51,15 @@ parse_features_file <- function(filename){
     features
 }
 
-parse_x_vals <- function(filename, colnames){
+parse_x_vals_file <- function(
+        filename,
+        feature_names
+    ){
     require(readr)
     require(magrittr)
 
     stopifnot(file.exists(filename))
-    stopifnot(is.character(colnames))
+    stopifnot(is.character(feature_names))
 
     # There are 561 variables in the file, each column is 16-characters wide
     xs <- read_fwf(
@@ -64,9 +69,33 @@ parse_x_vals <- function(filename, colnames){
         progress = FALSE
         )
 
-    stopifnot(length(colnames) == ncol(xs))
+    stopifnot(length(feature_names) == ncol(xs))
 
-    set_colnames(xs, colnames)
+    set_colnames(xs, feature_names)
+}
+
+combine_subjects_and_xvals <- function(
+        xval_filename,
+        subject_filename,
+        feature_names,
+        dataset_id
+    ){
+    require(magrittr)
+    require(tibble)
+
+    stopifnot(file.exists(subject_filename))
+
+    xvals <- parse_x_vals_file(xval_filename, feature_names)
+    subjects <- scan(subject_filename, what = "character")
+
+    stopifnot(length(subjects) == nrow(xvals))
+
+    xvals %>%
+        tibble::add_column(
+            subject = subjects,
+            dataset = rep(dataset_id, nrow(xvals)),
+            .before = 1
+            )
 }
 
 #' Imports each dataframe from the test and train subdirectories of the
@@ -77,7 +106,7 @@ parse_x_vals <- function(filename, colnames){
 #' test directory contains files:
 #'   - subject_test.txt
 #'   - X_test.txt
-#'   - t_test.txt
+#'   - y_test.txt
 #'   - Inertial Signals/
 #'     - body_acc_[x|y|z]_test.txt
 #'     - body_gyro_[x|y|z]_test.txt
@@ -98,27 +127,49 @@ parse_x_vals <- function(filename, colnames){
 #' - reading in and splitting on single-spaces, there are at-most 561 non-NA
 #'     entries
 #' - there are also 561 entries in the features.txt file
-import_data <- function(dir_prefix = "UCI HAR Dataset"){
+import_uci_har_data <- function(dir_prefix = "UCI HAR Dataset"){
     
     stopifnot(dir.exists(dir_prefix))
+    test_dir <- file.path(dir_prefix, "test")
+    train_dir <- file.path(dir_prefix, "train")
 
-    features <- parse_features_file(file.path(dir_prefix, "features.txt"))
-
-    test_vals <- parse_x_vals(
-        file.path(dir_prefix, "test", "X_test.txt"),
-        colnames = features
-        )
-
-    train_vals <- parse_x_vals(
-        file.path(dir_prefix, "train", "X_train.txt"),
-        colnames = features
+    features <- parse_features_file(
+        file.path(dir_prefix, "features.txt")
         )
     
-    # TODO: indicate train / test origin
-    # TODO: add subject info
-    # TODO: rbind the datasets
+    test_vals <- combine_subjects_and_xvals(
+        file.path(test_dir, "X_test.txt"),
+        file.path(test_dir, "subject_test.txt"),
+        feature_names = features,
+        dataset_id = "test"
+        )
 
-    list(test_vals, train_vals)
+    train_vals <- combine_subjects_and_xvals(
+        file.path(train_dir, "X_train.txt"),
+        file.path(train_dir, "subject_train.txt"),
+        feature_names = features,
+        dataset_id = "train"
+        )
+    
+    rbind(test_vals, train_vals)
 }
+
+#' Restricts the columns of a UCI-HAR dataset to keep only those that contain
+#' info on the subject, or the mean or std-dev of a measurable quantity
+#'
+#' This function disregards "meanFreq" columns
+#'
+#' Whether a subject was used in the test- or the training dataset is retained
+#'
+select_uci_har <- function(
+        uci_har_data
+    ){
+    require(dplyr)
+
+    keep_cols <- grepl("subject|dataset|_mean|_std", colnames(uci_har_data))
+    uci_har_data[, keep_cols] %>%
+        dplyr::select(-contains("meanFreq"))
+    }
+
 
 ###############################################################################
